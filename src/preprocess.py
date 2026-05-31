@@ -1,4 +1,4 @@
-"""Preprocessing entrypoints for audit, governance, and prediction-format splits."""
+"""Pipeline entrypoint: orchestrate data_audit and governance_v2."""
 
 from __future__ import annotations
 
@@ -8,20 +8,17 @@ from pathlib import Path
 
 import pandas as pd
 
-from data_audit import audit_raw_data, save_audit_result
-from data_governance import (
-    build_quality_tier,
-    derive_and_cap_kinematics,
-    govern_numeric_semantics,
-    select_model_ready_view,
-    validate_temporal_consistency,
-)
+try:
+    from .data_audit import audit_raw_data, save_audit_result
+    from . import governance_v2
+except ImportError:
+    from data_audit import audit_raw_data, save_audit_result
+    import governance_v2
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RAW_CSV = PROJECT_ROOT / "data" / "raw" / "fhvhv_tripdata_2026-03.csv"
 DEFAULT_AUDIT_JSON = PROJECT_ROOT / "results" / "raw_audit_2026_03.json"
-DEFAULT_MODEL_READY_SAMPLE = PROJECT_ROOT / "data" / "processed" / "model_ready_sample.parquet"
 DEFAULT_SPLIT_INPUT = (
     PROJECT_ROOT
     / "data"
@@ -36,32 +33,17 @@ DEFAULT_SPLIT_OUTPUT_DIR = (
 )
 
 
-def run_pipeline(
-    raw_csv: str | Path,
-    audit_json: str | Path,
-    model_ready_parquet: str | Path | None = None,
-    sample_rows: int = 200_000,
-) -> None:
-    """Run audit, then a lightweight governance sample pipeline."""
-    result = audit_raw_data(raw_csv_path=raw_csv)
+def run_audit(raw_csv: Path, audit_json: Path, chunksize: int) -> None:
+    result = audit_raw_data(raw_csv_path=raw_csv, chunksize=chunksize)
     save_audit_result(result, audit_json)
-
-    df = pd.read_csv(raw_csv, nrows=sample_rows)
-    df = validate_temporal_consistency(df)
-    df = govern_numeric_semantics(df)
-    df = derive_and_cap_kinematics(df)
-    df = build_quality_tier(df)
-    df = select_model_ready_view(df)
-
-    if model_ready_parquet is not None:
-        Path(model_ready_parquet).parent.mkdir(parents=True, exist_ok=True)
-        df.to_parquet(model_ready_parquet, index=False)
-
     print(f"rows={result.total_rows}")
     print(f"audit_json={audit_json}")
-    if model_ready_parquet is not None:
-        print(f"model_ready_sample={model_ready_parquet}")
-        print(f"model_ready_rows={len(df)}")
+
+
+def run_pipeline(raw_csv: Path, audit_json: Path, chunksize: int) -> None:
+    """Run full pipeline: audit then governance_v2."""
+    run_audit(raw_csv=raw_csv, audit_json=audit_json, chunksize=chunksize)
+    governance_v2.main()
 
 
 def _write_csv_part(df: pd.DataFrame, path: Path, write_header: bool) -> None:
@@ -83,17 +65,14 @@ def _sample_test_row_numbers(
             if len(reservoir) < test_size:
                 reservoir.append(row_number)
                 continue
-
             replacement_idx = rng.randint(0, row_number)
             if replacement_idx < test_size:
                 reservoir[replacement_idx] = row_number
-
         rows_seen += len(chunk)
         print(f"sample_pass chunk={chunk_idx} rows_seen={rows_seen}")
 
     if rows_seen < test_size:
         raise ValueError(f"Input has only {rows_seen} rows, fewer than test size {test_size}")
-
     return set(reservoir), rows_seen
 
 
@@ -117,7 +96,6 @@ def split_random_test(
     train_path = output_dir / "train.csv"
     test_path = output_dir / "test.csv"
     submission_path = output_dir / "sample_submission.csv"
-
     for path in (train_path, test_path, submission_path):
         if path.exists():
             path.unlink()
@@ -143,10 +121,7 @@ def split_random_test(
             raise ValueError(f"ID column not found: {id_column}")
 
         chunk_row_numbers = range(rows_seen, rows_seen + len(chunk))
-        test_mask = pd.Series(
-            [row_number in test_row_numbers for row_number in chunk_row_numbers],
-            index=chunk.index,
-        )
+        test_mask = pd.Series([rn in test_row_numbers for rn in chunk_row_numbers], index=chunk.index)
 
         train_part = chunk.loc[~test_mask]
         if not train_part.empty:
@@ -165,10 +140,7 @@ def split_random_test(
             test_rows += len(test_with_target)
 
         rows_seen += len(chunk)
-        print(
-            f"write_pass chunk={chunk_idx} rows_seen={rows_seen} "
-            f"train_rows={train_rows} test_rows={test_rows}"
-        )
+        print(f"write_pass chunk={chunk_idx} rows_seen={rows_seen} train_rows={train_rows} test_rows={test_rows}")
 
     return {
         "train_path": str(train_path),
@@ -188,20 +160,17 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command")
 
-    pipeline_parser = subparsers.add_parser("pipeline", help="Run raw audit and governance sample.")
-    pipeline_parser.add_argument("--raw-csv", type=Path, default=DEFAULT_RAW_CSV)
-    pipeline_parser.add_argument("--audit-json", type=Path, default=DEFAULT_AUDIT_JSON)
-    pipeline_parser.add_argument(
-        "--model-ready-parquet",
-        type=Path,
-        default=DEFAULT_MODEL_READY_SAMPLE,
-    )
-    pipeline_parser.add_argument("--sample-rows", type=int, default=200_000)
+    audit_parser = subparsers.add_parser("audit", help="Run only raw data audit.")
+    audit_parser.add_argument("--input", type=Path, default=DEFAULT_RAW_CSV)
+    audit_parser.add_argument("--output", type=Path, default=DEFAULT_AUDIT_JSON)
+    audit_parser.add_argument("--chunksize", type=int, default=300_000)
 
-    split_parser = subparsers.add_parser(
-        "split",
-        help="Split governed CSV into train.csv, test.csv, and sample_submission.csv.",
-    )
+    pipeline_parser = subparsers.add_parser("pipeline", help="Run audit + governance_v2.")
+    pipeline_parser.add_argument("--input", type=Path, default=DEFAULT_RAW_CSV)
+    pipeline_parser.add_argument("--output", type=Path, default=DEFAULT_AUDIT_JSON)
+    pipeline_parser.add_argument("--chunksize", type=int, default=300_000)
+
+    split_parser = subparsers.add_parser("split", help="Split governed CSV into train/test/submission.")
     split_parser.add_argument("--input", type=Path, default=DEFAULT_SPLIT_INPUT)
     split_parser.add_argument("--output-dir", type=Path, default=DEFAULT_SPLIT_OUTPUT_DIR)
     split_parser.add_argument("--test-size", type=int, default=10_000)
@@ -209,23 +178,21 @@ def parse_args() -> argparse.Namespace:
     split_parser.add_argument("--random-seed", type=int, default=42)
     split_parser.add_argument("--target-column", default="base_passenger_fare")
     split_parser.add_argument("--id-column", default="pickup_datetime")
-
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
 
-    if args.command == "pipeline":
-        run_pipeline(
-            raw_csv=args.raw_csv,
-            audit_json=args.audit_json,
-            model_ready_parquet=args.model_ready_parquet,
-            sample_rows=args.sample_rows,
-        )
+    if args.command == "audit":
+        run_audit(raw_csv=args.input, audit_json=args.output, chunksize=args.chunksize)
         return
 
-    if args.command in (None, "split"):
+    if args.command in (None, "pipeline"):
+        run_pipeline(raw_csv=args.input, audit_json=args.output, chunksize=args.chunksize)
+        return
+
+    if args.command == "split":
         result = split_random_test(
             input_path=args.input,
             output_dir=args.output_dir,
@@ -244,3 +211,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
