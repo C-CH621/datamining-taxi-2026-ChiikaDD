@@ -1,0 +1,16 @@
+{
+  "rmse": 6.9517552430245875,
+  "mae": 4.892380861282349,
+  "r2": 0.8994869115281131,
+  "model": "XGBRegressor",
+  "device": "cuda",
+  "tree_method": "hist",
+  "feature_mode": "generic_tabular",
+  "target_column": "base_passenger_fare",
+  "id_column": "pickup_datetime",
+  "train_rows_after_cleaning": 1000,
+  "test_rows": 10000,
+  "validation_size": 0.2,
+  "random_state": 42,
+  "submission_path": "results/core_model/test_submission_xgb_gpu_probe2.csv"
+}

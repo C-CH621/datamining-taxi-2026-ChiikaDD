@@ -1,0 +1,14 @@
+{
+  "rmse": 7.6809075200878345,
+  "mae": 4.8303420281877685,
+  "r2": 0.877295993377212,
+  "model": "HistGradientBoostingRegressor",
+  "feature_mode": "generic_tabular",
+  "target_column": "base_passenger_fare",
+  "id_column": "pickup_datetime",
+  "train_rows_after_cleaning": 1000,
+  "test_rows": 10000,
+  "validation_size": 0.2,
+  "random_state": 42,
+  "submission_path": "results/core_model/test_submission_probe.csv"
+}

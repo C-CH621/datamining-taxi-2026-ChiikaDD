@@ -1,0 +1,17 @@
+{
+  "rmse": 2.6414929627220083,
+  "mae": 1.414933301413883,
+  "r2": 0.9819138701806566,
+  "model": "LGBMRegressor",
+  "device": "cpu",
+  "feature_mode": "fhvhv_optimized",
+  "target_column": "base_passenger_fare",
+  "id_column": "pickup_datetime",
+  "categorical_features": [],
+  "best_iteration": 0,
+  "train_rows_after_cleaning": 9995,
+  "test_rows": 10000,
+  "validation_size": 0.2,
+  "random_state": 42,
+  "submission_path": "results/core_model/test_submission_lgbm_baseline_aligned_10k.csv"
+}
