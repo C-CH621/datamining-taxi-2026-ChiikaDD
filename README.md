@@ -18,7 +18,7 @@
 - `src/audit.py`：数据质量审计入口
 - `governance_v2.py`：数据治理
 - `src/baseline.py`：Ridge 线性基线模型
-- `src/core_model.py`：HistGradientBoosting 进阶模型
+- `src/core_model.py`：LightGBM 进阶模型
 - `src/evaluate.py`：回归指标计算工具
 - `results/`：实验指标与预测结果输出目录
 - `reports/figures/`：报告图表输出目录
