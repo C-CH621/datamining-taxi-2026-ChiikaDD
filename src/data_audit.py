@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 from collections import Counter
 from dataclasses import dataclass
@@ -138,3 +139,22 @@ def save_audit_result(result: AuditResult, out_json_path: str | Path) -> None:
         encoding="utf-8",
     )
 
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run raw data audit and export summary JSON.")
+    parser.add_argument("--input", required=True, help="Input raw CSV path.")
+    parser.add_argument("--output", required=True, help="Output audit summary JSON path.")
+    parser.add_argument("--chunksize", type=int, default=300000, help="Chunk size for streaming audit.")
+    return parser
+
+
+def main() -> None:
+    args = _build_arg_parser().parse_args()
+    result = audit_raw_data(raw_csv_path=args.input, chunksize=args.chunksize)
+    save_audit_result(result, args.output)
+    print(f"rows={result.total_rows}")
+    print(f"audit_json={args.output}")
+
+
+if __name__ == "__main__":
+    main()

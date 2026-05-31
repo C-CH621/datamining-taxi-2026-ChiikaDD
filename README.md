@@ -15,8 +15,8 @@
 - `proposal/ChiikaDD.md`：项目 proposal 与方法设计
 - `data/raw/`：原始 TLC 数据文件目录（大文件不纳入 Git）
 - `data/processed/`：清洗与特征工程后的中间数据
-- `src/audit.py`：数据质量审计入口
-- `src/preprocess.py`：数据清洗与特征工程入口
+<!-- - `src/audit.py`：数据质量审计入口 -->
+- `src/preprocess.py`：数据审计与数据治理，调用data_audit.py和data_governance.py完成数据审计和数据治理
 - `src/baseline.py`：Ridge 线性基线模型
 - `src/core_model.py`：HistGradientBoosting 进阶模型
 - `src/evaluate.py`：回归指标计算工具
@@ -35,11 +35,11 @@
    ```
 3. 运行数据审计：
    ```bash
-   python -m src.audit --input data/raw/yellow_tripdata_2026-01.parquet --output results/audit_summary.json
+   python -m src.data_audit --input data/raw/fhvhv_tripdata_2026-03.csv --output results/raw_audit_2026_03.json
    ```
 4. 生成清洗特征：
    ```bash
-   python -m src.preprocess --input data/raw/yellow_tripdata_2026-01.parquet --output data/processed/yellow_tripdata_2026-01_features.parquet
+   python src/governance_v2.py
    ```
 5. 运行基线模型：
    ```bash
