@@ -326,7 +326,19 @@ def govern_dataset_for_model(df: pd.DataFrame) -> pd.DataFrame:
     low_impact_delete_mask = out["trip_miles"].isna() & out["trip_time"].isna() & (out["base_passenger_fare"].isna())
     out = out.loc[~low_impact_delete_mask].copy()
 
-    # impact-sensitive imputation
+    # semantic-first imputation for trip_time:
+    # if trip_time is missing, use timestamp-derived duration when valid.
+    out["trip_time_imputed_from_timestamp"] = 0
+    duration_valid = (
+        out["trip_time"].isna()
+        & out["duration_seconds"].notna()
+        & (out["duration_seconds"] > 0)
+        & (out["duration_seconds"] <= 24 * 3600)
+    )
+    out.loc[duration_valid, "trip_time"] = out.loc[duration_valid, "duration_seconds"]
+    out.loc[duration_valid, "trip_time_imputed_from_timestamp"] = 1
+
+    # impact-sensitive statistical imputation (fallback)
     for col in ["trip_miles", "trip_time", "driver_pay", "tips"]:
         med = out.groupby(["dispatching_base_num", "pickup_hour"])[col].transform("median")
         out[col] = out[col].fillna(med).fillna(out[col].median())
