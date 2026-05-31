@@ -205,6 +205,7 @@ data/raw/*
 !data/raw/rawdata.md
 data/processed/*
 !data/processed/.gitkeep
+!data/processed/governed_data_description.md
 results/*
 !results/.gitkeep
 !results/**/
