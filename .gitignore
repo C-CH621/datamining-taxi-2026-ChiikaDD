@@ -207,6 +207,8 @@ data/processed/*
 !data/processed/.gitkeep
 results/*
 !results/.gitkeep
+!results/**/
+!results/**/*.csv
 reports/figures/*
 !reports/figures/.gitkeep
 .cursorignore
