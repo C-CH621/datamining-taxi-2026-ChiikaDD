@@ -1,0 +1,27 @@
+{
+  "rmse": 4.204680455301238,
+  "mae": 1.9582608045626224,
+  "r2": 0.9541739188229219,
+  "model": "LGBMRegressor",
+  "device": "cpu",
+  "feature_mode": "fhvhv_optimized",
+  "target_column": "base_passenger_fare",
+  "id_column": "pickup_datetime",
+  "categorical_features": [
+    "hvfhs_license_num",
+    "dispatching_base_num",
+    "originating_base_num",
+    "shared_request_flag",
+    "shared_match_flag",
+    "access_a_ride_flag",
+    "wav_request_flag",
+    "wav_match_flag",
+    "route"
+  ],
+  "best_iteration": 199,
+  "train_rows_after_cleaning": 9995,
+  "test_rows": 10000,
+  "validation_size": 0.2,
+  "random_state": 42,
+  "submission_path": "results/core_model/test_submission_lgbm_10k_probe.csv"
+}
