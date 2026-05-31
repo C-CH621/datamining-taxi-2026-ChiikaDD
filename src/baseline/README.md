@@ -98,6 +98,13 @@ key,fare_amount
 
 ## 模型对比说明
 
-- `simple_linear_model.py` 是最轻量的基线模型，特征较少，运行速度快，但预测能力较弱。
-- `Random_Forest.py`、`LightGBM_model.py` 和 `XGBoost_model.py` 共用 `model_utils.py` 中的数据清洗和特征工程逻辑。
-- 在已有 baseline 结果中，LightGBM 的记录分数最好，Random Forest 与其非常接近，XGBoost 次之，简单线性模型最弱。
+各 baseline 结果文件的 RMSE 和排名如下。RMSE 越低，模型效果越好。
+
+| 排名 | 结果文件 | 模型 | RMSE |
+| --- | --- | --- | --- |
+| 1 | `submission_LightGBM.csv` | LightGBM | 3.37 |
+| 2 | `submission_Random_Forest.csv` | Random Forest | 3.39 |
+| 3 | `submission_XGBoost.csv` | XGBoost | 3.61 |
+| 4 | `submission_simple-linear-model.csv` | 简单线性模型 | 5.74 |
+
+从结果看，LightGBM 的 RMSE 最低，是当前 baseline 中表现最好的模型；Random Forest 与 LightGBM 非常接近，XGBoost 次之，简单线性模型作为最基础的 baseline 表现最弱。
