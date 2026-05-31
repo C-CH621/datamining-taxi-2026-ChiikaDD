@@ -202,8 +202,9 @@ cython_debug/
 # Project data and generated artifacts
 data/raw/*
 !data/raw/.gitkeep
-# data/processed/*
-# !data/processed/.gitkeep
+!data/raw/rawdata.md
+data/processed/*
+!data/processed/.gitkeep
 results/*
 !results/.gitkeep
 reports/figures/*

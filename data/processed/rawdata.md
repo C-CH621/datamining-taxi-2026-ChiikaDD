@@ -1,1 +1,0 @@
-原始数据的下载链接是https://d37ci6vzurychx.cloudfront.net/trip-data/fhvhv_tripdata_2026-03.parquet，这是2026年3月份的高流量出租车辆行程记录，共有20,405,666数据。
