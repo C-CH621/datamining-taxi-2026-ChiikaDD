@@ -15,8 +15,8 @@
 - `proposal/ChiikaDD.md`：项目 proposal 与方法设计
 - `data/raw/`：原始 TLC 数据文件目录（大文件不纳入 Git）
 - `data/processed/`：清洗与特征工程后的中间数据
-<!-- - `src/audit.py`：数据质量审计入口 -->
-- `src/preprocess.py`：数据审计与数据治理，调用data_audit.py和data_governance.py完成数据审计和数据治理
+- `src/audit.py`：数据质量审计入口
+- `governance_v2.py`：数据治理
 - `src/baseline.py`：Ridge 线性基线模型
 - `src/core_model.py`：HistGradientBoosting 进阶模型
 - `src/evaluate.py`：回归指标计算工具
