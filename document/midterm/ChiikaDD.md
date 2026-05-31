@@ -56,76 +56,104 @@
 
 ## 2. 数据工程与审计落地
 
-### 2.1 阶段进展总览
-
-目前已完成以下工作：
-
-1. 原始数据审计程序化落地，相关逻辑位于 `src/preprocess.py`、`src/data_audit.py` 和 `src/governance_v2.py`。
-2. 审计结果结构化输出，形成数据质量问题的量化证据。
-3. 数据治理骨架函数已实现并可串联，包括时间一致性校验、数值语义治理、速度/时长衍生特征构造、缩尾处理和质量标记。
-4. 中期核心目标从“描述性 EDA”推进为“证据驱动治理 + 可复现实验框架 + baseline 定量对比”。
-5. 已将处理后的数据整理为新版建模输入：
-
-```text
-data/processed/train.csv
-data/processed/test.csv
-data/processed/sample_submission.csv
-```
-
-### 2.2 与开题预期的偏差
-
-1. 开题预期存在较明显缺失机制问题，例如部分时间字段缺失；但本批 FHVHV 数据中 `on_scene_datetime` 缺失率较低，缺失挑战没有成为最主要矛盾。
-2. 开题中参考了 Yellow Taxi 常见的长尾实体风险；当前 FHVHV 数据里平台和派单基地类别更集中，长尾类别问题弱于预期。
-3. 因此中期治理重点从“缺失补全/实体消歧”转向“跨字段一致性、语义约束治理和可复现 baseline 对比”。
-
-### 2.3 原始数据审计反馈
-
-数据文件：`data/raw/fhvhv_tripdata_2026-03.csv`  
-审计脚本：`src/preprocess.py`、`src/data_audit.py`、`src/governance_v2.py`  
-处理后建模数据：`data/processed/train.csv`、`data/processed/test.csv`
-
-| 数据问题 | 量化规模/现象 | 解决方案（精确到文件/函数） | 处理后效果 |
-| --- | ---: | --- | --- |
-| 金额语义冲突：`base_passenger_fare < 0` | 原始数据中存在负费用记录 | `src/governance_v2.py`、`src/preprocess.py`：负值标记并在训练视图中过滤 | 阻断脏标签进入监督训练 |
-| 时长一致性冲突 | `trip_time` 与上下车时间戳可能不一致 | 构造 `duration_seconds` 与 `flag_duration_inconsistent` | 将潜在噪音显式特征化 |
-| 速度异常 | 极低速或极高速行程可能代表异常记录 | 构造 `speed_mph` 与 `flag_speed_outlier` | 降低极端样本对模型的干扰 |
-| 数值长尾 | `trip_miles`、`trip_time`、`driver_pay`、`tips` 存在长尾 | 构造 `*_capped` 缩尾字段 | 保留原始字段，同时提供稳健建模字段 |
-| 数据质量综合问题 | 单条记录可能同时包含多个质量问题 | 构造 `quality_issue_count` | 支持后续质量分层和鲁棒训练 |
-
-### 2.4 数据流与预处理管道
-
+### 2.1. 原始数据审计反馈
+| 数据问题 | 量化规模 | 解决方案（精确到文件/函数） | 处理后效果 |
+| :--- | :--- | :--- | :--- |
+| 缺失机制（`originating_base_num`） | 缺失率 `27.5933%`；缺失预测 AUC=`0.9993`；目标分布 KS-p=`2.10e-08`（`MAR_likely`） | 缺失机制诊断见 `src/governance_v2.py::diagnose_missing_mechanism`；治理中对高影响特征采用分组中位数+全局中位数补全，见 `src/governance_v2.py::govern_dataset_for_model` | 避免直接删去高影响缺失样本；B 策略样本损失率 `0%`，A 策略样本损失率 `0.0087%` |
+| 标签噪音（规则冲突 + 弱监督不一致） | 规则冲突率 `3.0263%`；弱监督不一致率 `17.1704%`；疑似噪音率 `18.5087%` | 规则冲突与弱监督一致性诊断见 `src/governance_v2.py::diagnose_label_noise`；抽检样本见 `results/manual_audit_sample_noise.csv` | 通过“标记+修复+缩尾”降低噪音影响；A/B中 MAE `4.7044 -> 4.6993`，RMSE `8.6570 -> 8.6181` |
+| 时间漂移（周内漂移） | Week1 vs Week4：`trip_miles` PSI=`0.00148`、KS-p=`0.0066`；`base_passenger_fare` PSI=`0.00024`、KS-p=`0.00167` | 漂移诊断见 `src/governance_v2.py::diagnose_time_drift`（PSI + KS + Wasserstein） | 当前为“弱漂移”，不触发重训，仅持续监控；避免过度治理导致分布失真 |
+| 子群体差异（平台/时段/区域） | 平台质量问题率：HV0003=`0.1080%`、HV0005=`0.0599%`；高峰/低峰质量问题率存在差异（`0.0742%` vs `0.1066%`） | 分群诊断见 `src/governance_v2.py::subgroup_diagnostics` | 训练评估阶段纳入分群稳定性与公平性指标（子群体误差标准差、公平性差距） |
+| 开题预测未发生项  | `on_scene_datetime` 缺失率 `0`；`dispatching_base_num` 长尾（freq<3）占比 `0` | 审计统计见 `src/data_audit.py::audit_raw_data` 与 `results/raw_audit_2026_03.json` | 说明原因：本批次 FHVHV 2026-03 数据结构较规整，缺失与长尾风险低于开题预期 |
+审计结果如图 
+![审计结果图](./figure/audit.png)
+### 2.2. 数据流与预处理管道
+#### 2.2.1 数据流与预处理管道
 ```mermaid
 flowchart TD
-    A[Raw CSV\n data/raw/fhvhv_tripdata_2026-03.csv] --> B[Raw Audit\n src/data_audit.py / src/preprocess.py]
-    B --> C[Temporal Parse & Consistency Check]
-    C --> D[Semantic Numeric Governance]
-    D --> E[Kinematics Features\n duration_seconds + speed_mph]
-    E --> F[Robust Capping\n *_capped]
-    F --> G[Quality Flags\n quality_issue_count]
-    G --> H[Processed CSV\n data/processed/train.csv + test.csv]
-    H --> I[Baseline Models\n src/baseline/*.py]
-    I --> J[Prediction Results\n results/baseline/*.csv]
-    J --> K[RMSE Evaluation\n src/baseline/evaluate_rmse.py]
+    A[原始数据 CSV\n data/raw/fhvhv_tripdata_2026-03.csv] --> B[原始审计\n src/data_audit.py::audit_raw_data]
+    B --> C[审计报告输出\n src/data_audit.py::save_audit_result\n results/raw_audit_2026_03.json]
+    A --> D[高级诊断\n src/governance_v2.py::diagnose_missing_mechanism]
+    A --> E[标签噪音诊断\n src/governance_v2.py::diagnose_label_noise]
+    A --> F[漂移诊断\n src/governance_v2.py::diagnose_time_drift]
+    A --> G[分群诊断\n src/governance_v2.py::subgroup_diagnostics]
+    D --> H[治理主流程\n src/governance_v2.py::govern_dataset_for_model]
+    E --> H
+    F --> H
+    G --> H
+    H --> I[治理后全量数据\n data/processed/fhvhv_tripdata_2026-03_governed_v2_full.parquet]
+    H --> J[A/B实验\n src/governance_v2.py::run_experiment]
+    J --> K[实验表\n results/governance_v2_experiment_table.csv]
+    D --> L[诊断汇总\n results/governance_v2_diagnosis.json]
+    K --> M[模型训练输入\n src/core_model.py]
+    I --> M
 ```
-
-### 2.5 治理操作明细
+#### 2.2.1 治理操作明细（补充说明）
 
 本项目在治理过程中执行了以下可复现步骤：
 
-1. **字段标准化**  
-   时间字段统一解析为 `datetime`；数值字段统一转换为 numeric，非法值转为缺失值，避免后续统计和建模报错。
+（1）. 字段标准化  
+- 时间字段统一解析为 `datetime`：`request_datetime`、`on_scene_datetime`、`pickup_datetime`、`dropoff_datetime`。  
+- 数值字段统一转为 `numeric`，非法值转为 `NaN`，避免后续统计和建模报错。
 
-2. **语义约束治理**  
-   对业务上不应为负的字段进行检查，例如 `base_passenger_fare`、`driver_pay`、`trip_miles`、`trip_time`。对于训练目标中异常或缺失的样本，在 baseline 训练阶段进行过滤，避免污染标签。
+（2）. 缺失机制诊断与处理  
+- 对缺失字段进行机制判定（MCAR/MAR/MNAR 倾向），对应函数：`src/governance_v2.py::diagnose_missing_mechanism`。  
+- 对高影响特征不做粗暴删行，采用“分组中位数（`dispatching_base_num + pickup_hour`）→ 全局中位数”的两级补全策略，见 `src/governance_v2.py::govern_dataset_for_model`。  
+- 对低影响且极低占比缺失，在 A 策略中允许删除作为对照。
 
-3. **跨字段一致性校验**  
-   构造 `duration_seconds = dropoff_datetime - pickup_datetime`，并与 `trip_time` 对比；构造 `speed_mph = trip_miles / (trip_time / 3600)`，用于识别速度异常。
+（3）. 语义约束治理  
+- 对业务上不应为负的字段（如 `base_passenger_fare`、`driver_pay`、`trip_miles`、`trip_time`）执行：  
+  - 负值置空（不直接删行）；  
+  - 同时写入标记字段（如 `flag_fare_negative` 等）保留审计痕迹。
 
-4. **异常值稳健化**  
-   对 `trip_miles`、`trip_time`、`driver_pay`、`tips` 等字段生成 `*_capped` 版本，降低极端值的杠杆效应，同时保留原始字段便于追溯。
+（4）. 跨字段一致性校验  
+- 构造 `duration_seconds = dropoff_datetime - pickup_datetime`。  
+- 生成 `flag_duration_inconsistent`：当 `|duration_seconds - trip_time| > 300` 秒。  
+- 构造 `speed_mph = trip_miles / (trip_time/3600)`，并生成 `flag_speed_outlier`（`speed_mph < 1` 或 `> 80`）。
 
-5. **质量问题特征化**  
-   将负值、时长冲突、速度异常等信息转化为显式质量标记，形成 `quality_issue_count`，便于模型学习数据质量与费用之间的关系。
+（5）. 异常值稳健化（非删除）  
+- 对 `trip_miles`、`trip_time`、`driver_pay`、`tips` 生成缩尾列：`*_capped`。  
+- 使用约 `0.1% ~ 99.9%` 分位缩尾，降低极端值杠杆效应，同时保留原始字段用于追溯。
+
+（6）. 子群体差异审计  
+- 按平台（`hvfhs_license_num`）、时段（高峰/低峰）、区域桶进行分层统计。  
+- 输出各子群体质量问题率与目标均值偏差，函数：`src/governance_v2.py::subgroup_diagnostics`。  
+- 目的：避免某一群体被过度清洗或误差显著偏高。
+
+### 2.3. 对照实验设计与结果（A/B）
+
+**实验设计**
+- 策略 A：`A_delete`（只删异常/缺失）
+- 策略 B：`B_govern`（标记 + 修复 + 缩尾）
+- 固定变量：同切分、同模型（`HistGradientBoostingRegressor`）、同特征、同随机种子
+- 实现位置：`src/governance_v2.py::run_experiment`
+
+**实验结果**
+| 策略 | RMSE | MAE | 子群体误差标准差 | 公平性差距 | 样本损失率 |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| A_delete | 8.6570 | 4.7044 | 0.7185 | 1.4369 | 0.0087% |
+| B_govern | **8.6181** | **4.6993** | **0.7139** | **1.4279** | **0.0000%** |
+
+- 显著性检验（配对置换）：p-value=`0.1417`（当前样本条件下统计显著性有限，但方向一致）
+- 误差差值（A-B，MAE 方向）：`+0.00515`（正值表示 B 更优）
+实验结果证明 
+![实验结果证明](./figure/A_B.png)
+### 2.4. 落地产物与可复现命令
+
+**关键产物**
+- 审计报告：`results/raw_audit_2026_03.json`
+- 诊断汇总：`results/governance_v2_diagnosis.json`
+- 实验表：`results/governance_v2_experiment_table.csv`
+- 治理后全量数据：`data/processed/fhvhv_tripdata_2026-03_governed_v2_full.parquet`
+- 治理后 CSV：`data/processed/fhvhv_tripdata_2026-03_governed_v2_full.csv`
+
+**可复现命令**
+```bash
+# 仅审计
+python -m src.preprocess audit --input data/raw/fhvhv_tripdata_2026-03.csv --output results/raw_audit_2026_03.json
+
+# 审计 + 治理 + 诊断 + A/B实验（全流程）
+python -m src.preprocess pipeline --input data/raw/fhvhv_tripdata_2026-03.csv --output results/raw_audit_2026_03.json
+```
 
 ## 3. 基线模型与核心算法实现
 
