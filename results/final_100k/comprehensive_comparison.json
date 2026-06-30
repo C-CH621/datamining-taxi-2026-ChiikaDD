@@ -1,0 +1,33 @@
+{
+  "best_baseline_rmse": 2.077842468724453,
+  "results": {
+    "Core Model - LGB+RF Blend": {
+      "rmse": 1.959638446797172,
+      "r2": 0.9942057238578391
+    },
+    "Core Model - LGB Optimized": {
+      "rmse": 2.0229132405609267,
+      "r2": 0.9938254999288321
+    },
+    "Baseline - Random Forest": {
+      "rmse": 2.077842468724453,
+      "r2": 0.9934856284816249
+    },
+    "Baseline - LightGBM": {
+      "rmse": 2.079750127565071,
+      "r2": 0.9934736613539088
+    },
+    "Core Model - Original": {
+      "rmse": 2.5067963361802783,
+      "r2": 0.9905183179378046
+    },
+    "Baseline - Simple Linear": {
+      "rmse": 2.6077483147256104,
+      "r2": 0.9897392611865921
+    },
+    "Baseline - XGBoost": {
+      "rmse": 3.9750871868352453,
+      "r2": 0.9761581142113775
+    }
+  }
+}
