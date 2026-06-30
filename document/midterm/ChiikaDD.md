@@ -48,29 +48,7 @@
 
 ## 2. 数据工程与审计落地
 
-### 2.1 阶段进展总览
-
-目前已完成以下工作：
-
-1. 原始数据审计程序化落地，相关逻辑位于 `src/preprocess.py`、`src/data_audit.py` 和 `src/governance_v2.py`。
-2. 审计结果结构化输出，形成数据质量问题的量化证据。
-3. 数据治理骨架函数已实现并可串联，包括时间一致性校验、数值语义治理、速度/时长衍生特征构造、缩尾处理和质量标记。
-4. 中期核心目标从“描述性 EDA”推进为“证据驱动治理 + 可复现实验框架 + baseline 定量对比”。
-5. 已将处理后的数据整理为新版建模输入：
-
-```text
-data/processed/fhvhv_tripdata_2026-03_prediction_format/train.csv
-data/processed/fhvhv_tripdata_2026-03_prediction_format/test.csv
-data/processed/fhvhv_tripdata_2026-03_prediction_format/sample_submission.csv
-```
-
-### 2.2 与开题预期的偏差
-
-1. 开题预期存在较明显缺失机制问题，例如部分时间字段缺失；但本批 FHVHV 数据中 `on_scene_datetime` 缺失率较低，缺失挑战没有成为最主要矛盾。
-2. 开题中参考了 Yellow Taxi 常见的长尾实体风险；当前 FHVHV 数据里平台和派单基地类别更集中，长尾类别问题弱于预期。
-3. 因此中期治理重点从“缺失补全/实体消歧”转向“跨字段一致性、语义约束治理和可复现 baseline 对比”。
-
-### 2.3 原始数据审计反馈
+### 2.1 原始数据审计反馈
 
 数据文件：`data/raw/fhvhv_tripdata_2026-03.csv`
 审计脚本：`src/preprocess.py`、`src/data_audit.py`、`src/governance_v2.py`
@@ -90,7 +68,7 @@ data/processed/fhvhv_tripdata_2026-03_prediction_format/sample_submission.csv
 
 ![审计结果图](./figure/audit.png)
 
-### 2.4 数据流与预处理管道
+### 2.2 数据流与预处理管道
 
 ```mermaid
 flowchart TD
@@ -113,7 +91,7 @@ flowchart TD
     M --> O[RMSE Evaluation\n src/baseline/evaluate_rmse.py]
 ```
 
-### 2.5 治理操作明细（补充说明）
+### 2.3 治理操作明细（补充说明）
 
 本项目在治理过程中执行了以下可复现步骤：
 
@@ -145,7 +123,7 @@ flowchart TD
 - 输出各子群体质量问题率与目标均值偏差，函数：`src/governance_v2.py::subgroup_diagnostics`。
 - 目的：避免某一群体被过度清洗或误差显著偏高。
 
-### 2.6 对照实验设计与结果（三组消融实验）
+### 2.4 对照实验设计与结果（三组消融实验）
 
 **实验设计**
 - 原始基准：`Raw_baseline`（仅进行模型运行必需的处理）
@@ -168,7 +146,7 @@ flowchart TD
 实验结果
 ![实验结果证明](./figure/A_B.png)
 
-### 2.7 落地产物与可复现命令
+### 2.5 落地产物与可复现命令
 
 **关键产物**
 - 审计报告：`results/raw_audit_2026_03.json`
@@ -380,34 +358,3 @@ sample_submission_r2: 0.9940273054324651
 | 新版数据适配 | Codex | 将目标列改为 `base_passenger_fare`，适配 `data/processed/fhvhv_tripdata_2026-03_prediction_format/` 结构 | 人工检查 `train.csv`、`test.csv`、`sample_submission.csv` 字段 |
 | 评估脚本编写 | Codex | 编写 `evaluate_rmse.py`，实现 RMSE 计算和排名输出 | 发现参考文件缺失值后修正为跳过无效行 |
 | 报告整理 | Codex | 按中期模板补充 baseline 运行说明和结果分析 | 保留原有数据审计与治理内容，并人工核对指标数字 |
-
-## 7. 复现入口汇总
-
-生成四类 baseline 和进阶模型：
-
-```bash
-python src/baseline/simple_linear_model.py --input-dir data/processed/fhvhv_tripdata_2026-03_prediction_format --output results/baseline/submission_simple_linear_model.csv
-python src/baseline/LightGBM_model.py --input-dir data/processed/fhvhv_tripdata_2026-03_prediction_format --output results/baseline/submission_LightGBM.csv
-python src/baseline/XGBoost_model.py --input-dir data/processed/fhvhv_tripdata_2026-03_prediction_format --output results/baseline/submission_XGBoost.csv
-python src/baseline/Random_Forest.py --input-dir data/processed/fhvhv_tripdata_2026-03_prediction_format --nrows 200000 --n-estimators 30 --output results/baseline/submission_Random_Forest.csv
-/home/xuwenbin/miniconda3/bin/python -m src.core_model --input-dir data/processed/fhvhv_tripdata_2026-03_prediction_format --nrows 1000000
-```
-
-评估四类 baseline：
-
-```bash
-python src/baseline/evaluate_rmse.py --truth data/processed/fhvhv_tripdata_2026-03_prediction_format/sample_submission.csv --results-dir results/baseline
-```
-
-关键产物：
-
-- `src/baseline/README.md`
-- `src/baseline/model_utils.py`
-- `src/baseline/evaluate_rmse.py`
-- `results/baseline/submission_simple_linear_model.csv`
-- `results/baseline/submission_LightGBM.csv`
-- `results/baseline/submission_XGBoost.csv`
-- `results/baseline/submission_Random_Forest.csv`
-- `results/core_model/submission_core_model.csv`
-- `results/core_model/core_model_metrics.json`
-- `reports/governance_v2_report.md`

@@ -1,0 +1,22 @@
+flowchart LR
+    A["统一特征表示<br/>时间拆解：hour/day/month<br/>等待时长：request→pickup/scene<br/>8 类业务类别 One-Hot<br/>数值列统一转 float 并填补"]
+    B["LightGBM 参数搜索<br/>较低学习率 0.04<br/>较大叶子数 63<br/>限制深度 7<br/>L1/L2 正则"]
+    C["优化 LGB 单模型<br/>160 轮全量训练<br/>控制树容量与过拟合<br/>RMSE = 2.0229"]
+    D["Random Forest 互补模型<br/>Bagging 降低方差<br/>100 棵树<br/>max_depth = 20"]
+    E["预测融合策略<br/>LGB 捕获梯度提升信号<br/>RF 提供方差互补<br/>0.5/0.5 加权平均"]
+    F["最终方法输出<br/>融合预测非负截断<br/>RMSE = 1.9625<br/>较最佳 baseline 提升 5.6%"]
+
+    A --> B --> C --> E --> F
+    A --> D --> E
+
+    B -.-> G["调参目标<br/>提升单模型精度<br/>避免小样本过拟合"]
+    E -.-> H["核心贡献<br/>同一特征表示下<br/>通过模型互补取得增益"]
+
+    style A fill:#f0fdfa,stroke:#0f766e,stroke-width:2px
+    style B fill:#fff7ed,stroke:#ea580c,stroke-width:2px
+    style C fill:#ffedd5,stroke:#c2410c,stroke-width:2px
+    style D fill:#fef2f2,stroke:#dc2626,stroke-width:2px
+    style E fill:#dcfce7,stroke:#16a34a,stroke-width:3px
+    style F fill:#e0f2fe,stroke:#0284c7,stroke-width:3px
+    style G fill:#f8fafc,stroke:#64748b,stroke-width:1.5px
+    style H fill:#f8fafc,stroke:#64748b,stroke-width:1.5px
