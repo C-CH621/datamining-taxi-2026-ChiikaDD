@@ -127,14 +127,18 @@ graph LR
 
 ### 4.3 技术栈
 
-| 模块 | 工具 / 框架 | 版本 |
-| :--- | :--- | :--- |
-| 数据处理 | Pandas, Snorkel | 2.1.0, 0.9.8 |
-| 图谱构建 | spaCy, NetworkX | 3.7.2, 3.3 |
-| 图存储 | Neo4j / NetworkX（本地） | 5.18 |
-| 检索与嵌入 | sentence-transformers, FAISS | 3.0, 1.8 |
-| 生成模型 | Qwen3-8B（本地部署）| — |
-| 评测 | RAGAS | 0.1.21 |
+本项目整体采用 Python 作为主要开发语言，围绕表格型回归预测任务构建数据处理、基线建模、核心模型训练、评估与可视化流程。核心代码位于 `src/` 目录，其中 baseline 相关代码集中在 `src/baseline/`，最终模型与统一实验入口位于 `src/generate_final.py` 和 `src/core_model.py`。
+
+| 模块 | 使用技术 | 作用 |
+|:---|:---|:---|
+| 数据读取与处理 | pandas, NumPy | 读取 `train.csv`、`test.csv`、`sample_submission.csv`，完成目标列清洗、缺失值处理、特征矩阵构造 |
+| 特征工程 | pandas, scikit-learn | 时间字段拆分、类别特征 One-hot 编码、数值特征类型转换与缺失填充 |
+| 基线模型 | NumPy, scikit-learn, LightGBM, XGBoost | 构建 Simple Linear、Random Forest、LightGBM、XGBoost 四类基线 |
+| 核心模型 | LightGBM, scikit-learn | 构建调参后的 LightGBM 与 Random Forest 融合模型 |
+| 评估指标 | NumPy, scikit-learn | 计算 RMSE、MAE、R² 等指标 |
+| 实验复现 | argparse, JSON, CSV | 支持命令行参数、输出预测文件、保存实验配置与指标 |
+
+baseline 部分采用统一的预处理逻辑，保证四类模型输入特征一致，避免由于数据处理差异影响模型对比。最终核心方法在相同数据口径下进一步进行 LightGBM 超参数适配与 LightGBM/Random Forest 异质模型融合，从而形成从简单基线到进阶模型的完整对照。
 
 ---
 
@@ -142,23 +146,70 @@ graph LR
 
 ### 5.1 评测数据集与指标
 
-- **测试集构建**：[例：人工标注 100 个多跳推理问答对，其中 60 个来自训练集文献领域外的新文献（Domain-shift 场景），40 个来自训练领域内。所有标注由 2 人独立完成，一致性 κ=0.82。]
-- **数据切分方式**：[必须说明切分是否按时间/用户/领域进行，不可随机切分场景需声明原因]
-- **核心评测指标**：
+本项目使用纽约市出租车与豪华轿车委员会（NYC TLC）公开的 2026 年 3 月高运量网约车（FHVHV）行程数据。实验阶段采用统一抽样后的训练集与测试集进行评测：训练集规模为 100,000 行，清洗后约 99,995 行；测试集规模为 10,000 行，其中 9,996 行可用于有效评估。预测目标为乘客基础费用 `base_passenger_fare`。
 
-  | 指标 | 含义 | 评估工具 |
-  | :--- | :--- | :--- |
-  | Faithfulness | 答案内容可被检索片段覆盖的比例（防幻觉核心指标） | RAGAS |
-  | Answer Relevance | 答案与问题的相关程度 | RAGAS |
-  | Recall@5 | 正确答案所需证据是否出现在 Top-5 检索结果中 | 自研 `src/evaluate.py` |
-  | Context Precision | 检索出的片段中真正有用的比例 | RAGAS |
+模型输入特征采用统一的 baseline 编码方案，共形成 61 维特征。该特征集主要包括时间特征、类别 One-hot 特征和数值型行程特征。时间字段不会直接以字符串形式输入模型，而是转换为小时、日期、月份、星期等结构化时间特征；类别字段进行 One-hot 编码；数值字段进行类型转换，并对缺失或无法转换的值填充为 0。
+
+实验主指标为 RMSE，辅助指标为 MAE 和 R²。
+
+| 指标 | 含义 | 作用 |
+|:---|:---|:---|
+| RMSE | 均方根误差 | 主评估指标，对大误差更敏感，适合衡量费用预测中高价订单的偏差 |
+| MAE | 平均绝对误差 | 衡量模型平均每单预测误差，便于从业务角度解释 |
+| R² | 决定系数 | 衡量模型对费用波动的解释能力 |
+
+RMSE 的计算公式如下：
+
+$$
+RMSE = \sqrt{\frac{1}{n}\sum_{i=1}^{n}(\hat{y}_i-y_i)^2}
+$$
+
+其中，$\hat{y}_i$ 表示模型对第 $i$ 条订单的预测费用，$y_i$ 表示真实基础乘客费用。由于 RMSE 与费用单位一致，因此可以直接解释为美元尺度下的预测误差。
+
+---
 
 ### 5.2 基线对比实验
 
-| 方法 | Faithfulness | Answer Relevance | Recall@5 | Context Precision | 推理耗时 |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| Baseline | 0.61 | 0.74 | 72.4% | 0.68 | **1.2s** |
-| **Ours** | **0.84** (+0.23) | **0.81** (+0.07) | **88.6%** (+16.2%) | **0.79** (+0.11) | 3.5s |
+为了建立可靠的性能参照系，本项目构建了四类 baseline 方法：Simple Linear、Random Forest、LightGBM 和 XGBoost。四类模型均使用 `src/baseline/` 中统一的预处理逻辑，包括目标列清洗、时间特征提取、类别特征 One-hot 编码和数值缺失填充，从而保证模型对比主要反映算法差异，而不是数据处理差异。
+
+#### 5.2.1 基线方法说明
+
+**Simple Linear** 使用 NumPy 最小二乘法求解线性回归权重。实现时在特征矩阵后拼接一列常数项作为截距，然后通过最小二乘求解模型参数。该方法训练速度快、可解释性较强，但只能拟合线性关系，难以捕捉出租车费用与时间、距离、区域、平台等因素之间的复杂非线性关系。
+
+**Random Forest** 使用 `RandomForestRegressor` 训练多棵决策树，并对多棵树的预测结果取平均。该方法能够捕捉非线性关系，对特征尺度不敏感，并且对异常值相对稳健。由于每棵树基于不同采样和特征划分训练，Random Forest 具有较好的方差控制能力，是本项目中表现最好的 baseline。
+
+**LightGBM** 使用 GBDT 梯度提升框架进行回归训练。模型将训练数据转换为 LightGBM 的 `Dataset` 格式，通过逐轮拟合残差不断提升预测能力。LightGBM 适合结构化表格数据，训练效率高，能够捕捉复杂非线性关系，因此在 baseline 中表现接近 Random Forest。
+
+**XGBoost** 使用 `DMatrix` 数据结构和平方误差回归目标进行训练。XGBoost 是工业界常用的强基线模型，但在本项目统一测试中表现不佳，说明在当前特征编码、参数设置和数据规模下，XGBoost 未能充分适配本任务。
+
+#### 5.2.2 基线结果
+
+统一测试结果如下：
+
+| 排名 | 模型 | RMSE | MAE | R² | 说明 |
+|:---:|:---|---:|---:|---:|:---|
+| 1 | Random Forest | 2.0778 | 1.1671 | 0.9935 | 最优 baseline |
+| 2 | LightGBM | 2.0798 | 1.1596 | 0.9935 | 与 Random Forest 非常接近 |
+| 3 | Simple Linear | 2.6077 | 1.5344 | 0.9897 | 线性假设限制较明显 |
+| 4 | XGBoost | 3.9751 | 1.3879 | 0.9762 | 当前参数与特征设置下表现最差 |
+
+实验结果表明，树模型整体优于简单线性模型，说明费用预测任务中存在明显的非线性关系。其中 Random Forest 取得最优 baseline 结果，RMSE 为 2.0778；LightGBM baseline 与其非常接近，RMSE 为 2.0798。Simple Linear 的 RMSE 为 2.6077，说明单纯线性关系难以充分表达费用变化。XGBoost 在当前统一实验设置下 RMSE 为 3.9751，表现显著弱于其他 baseline，后续核心模型没有将其作为主要融合对象。
+
+基于该对比，后续核心方法选择 Random Forest 和 LightGBM 作为主要优化对象：LightGBM 通过超参数适配降低偏差，Random Forest 通过 Bagging 机制控制方差，两者在预测层进行异质融合。
+
+#### 5.2.3 Baseline 与核心方法对比
+
+在最优 baseline 为 Random Forest（RMSE=2.0778）的基础上，核心方法通过 LightGBM 超参数适配和 LightGBM/Random Forest 融合进一步提升性能。最终 LGB+RF 60/40 融合模型 RMSE 为 1.9596，相比最优 baseline 提升 5.69%。
+
+| 方法 | RMSE | MAE | R² | 相对最优 baseline |
+|:---|---:|---:|---:|:---:|
+| Baseline - Random Forest | 2.0778 | 1.1671 | 0.9935 | 基准线 |
+| Core Model - LGB Optimized | 2.0229 | 1.1378 | 0.9938 | +2.64% |
+| Core Model - LGB+RF Blend 60/40 | 1.9596 | 1.1169 | 0.9942 | +5.69% |
+
+该结果说明，单一强 baseline 已经能够取得较好效果，但针对数据规模进行超参数适配，并利用不同集成学习范式的互补性进行融合，仍然可以带来稳定提升。
+
+---
 
 ### 5.3 消融实验
 
@@ -171,26 +222,34 @@ graph LR
 
 ### 5.4 一键复现命令
 
+本项目核心实验入口为 `src/generate_final.py`。该脚本支持读取统一处理后的数据，训练优化后的 LightGBM 与 Random Forest，并输出融合预测结果、指标文件和运行配置。
+
+推荐复现命令如下：
+
 ```bash
-# 1. 环境安装
-pip install -r requirements.txt
-
-# 2. 数据准备（或下载脚本）
-python data/download.py --output data/raw/
-
-# 3. 数据预处理 & 图谱构建
-python src/preprocess.py --input data/raw/ --output data/processed/
-python src/graph_build.py --input data/processed/ --output data/graph/
-
-# 4. 运行评测（复现论文表格主要结果）
-python src/evaluate.py --config configs/eval_full.yaml --output results/
+python src/generate_final.py --nrows 100000 --input-dir data/processed --output-dir results/final_100k
 ```
+
+该命令会在 `results/final_100k` 下输出核心模型预测文件、综合对比指标和运行配置。统一测试结果中使用的训练规模为 100,000 行，对应有效评估样本数为 9,996 行。
+
+若需要分别运行四类 baseline，可执行：
+
+```bash
+python src/baseline/simple_linear_model.py
+python src/baseline/Random_Forest.py
+python src/baseline/LightGBM_model.py
+python src/baseline/XGBoost_model.py
+```
+
+---
 
 ### 5.5 随机种子与可复现性说明
 
-- **随机种子**：所有实验固定 `seed=42`，在 `src/utils.py::set_seed()` 中统一设置
-- **依赖版本锁定**：`requirements.txt` 已锁定所有包版本（`pip freeze` 生成）
-- **已知不可复现因素**：[例：RAGAS 评分调用 OpenAI API 存在随机性，可使用本地 Qwen3-8B 替代（见 `configs/eval_local.yaml`），两者结果相差 ≤ 0.02]
+为了提高实验可复现性，本项目在 baseline 与核心模型训练中尽量固定随机种子。Random Forest、LightGBM 和 XGBoost 等涉及随机采样或随机特征选择的模型均使用固定随机种子 42，除种子消融实验外，其余主实验保持一致。
+
+核心模型采用统一的数据划分、统一的 61 维 baseline 特征编码和统一的评估脚本。最终融合模型的权重通过统一实验中的权重搜索确定，最佳结果为 LightGBM 0.60 + Random Forest 0.40，RMSE=1.9596。同时，实验记录表中也保留了 0.50/0.50、0.55/0.45、0.65/0.35 等邻近权重的结果，用于验证融合策略的稳定性。
+
+项目还保存了实验配置文件和指标文件，便于追踪每次运行时的数据规模、模型参数、融合权重和输出目录。最终报告中的实验结论均以统一测试结果为准，避免由于不同成员本地环境、依赖版本或运行参数不同导致指标不一致。
 
 ---
 
@@ -229,31 +288,26 @@ python src/evaluate.py --config configs/eval_full.yaml --output results/
 
 ## 7. 代码仓库审计
 
-- **最终 commit 统计**：
-  - 总 commit 数：[如 134 次]，各成员贡献：[张三 58 / 李四 41 / 王五 35]
-  - 最近一次有效 commit 时间：[如：2026-06-14（非格式化/readme 类空 commit）]
-- **仓库最终目录结构**（运行 `tree -L 2` 粘贴实际输出，不可使用样例替代）：
-  ```text
-  # 请粘贴 tree -L 2 的真实输出，并在右侧注释各模块功能
-  ├── README.md               # 环境配置 + 一键复现命令（含每步预期输出）
-  ├── requirements.txt        # pip freeze 锁定版本
-  ├── configs/
-  │   ├── eval_full.yaml      # 完整评测配置
-  │   └── eval_local.yaml     # 本地离线评测配置
-  ├── data/
-  │   ├── download.py         # 数据下载脚本
-  │   └── processed/          # 预处理后的中间数据
-  ├── src/
-  │   ├── preprocess.py       # 数据清洗与 Snorkel 标签融合
-  │   ├── graph_build.py      # 知识图谱构建
-  │   ├── indexing.py         # 社群摘要索引
-  │   ├── retrieval.py        # 双路检索逻辑
-  │   ├── pipeline.py         # 端到端问答主流程
-  │   └── evaluate.py         # 评测框架与指标计算
-  ├── notebooks/
-  │   └── eda.ipynb           # 探索性分析与数据审计可视化
-  └── results/                # 实验输出（由 evaluate.py 生成）
-  ```
+本项目代码主要位于 `src/` 目录，围绕数据处理、baseline 建模、核心模型训练、结果评估和可视化展开。代码结构如下：
+
+| 路径 | 作用 |
+|:---|:---|
+| `src/baseline/model_utils.py` | baseline 统一预处理工具，包括数据读取、目标列清洗、时间特征提取、类别编码、数值填充和提交文件保存 |
+| `src/baseline/simple_linear_model.py` | Simple Linear baseline，使用最小二乘法训练线性回归模型 |
+| `src/baseline/Random_Forest.py` | Random Forest baseline，使用多棵决策树平均预测 |
+| `src/baseline/LightGBM_model.py` | LightGBM baseline，使用 GBDT 方式训练回归模型 |
+| `src/baseline/XGBoost_model.py` | XGBoost baseline，使用平方误差目标训练回归模型 |
+| `src/generate_final.py` | 最终统一实验入口，训练优化 LightGBM、Random Forest，并进行模型融合和结果保存 |
+| `src/core_model.py` | 核心 LightGBM 模型实现，包含更完整的参数化训练与指标保存逻辑 |
+| `src/data_audit.py` | 数据审计脚本，用于识别缺失、异常和数据质量问题 |
+| `src/governance_v2.py` | 数据治理流程，包含修复、标记和稳健化处理 |
+| `src/preprocess.py` | 数据预处理逻辑 |
+| `src/plot_feature_importance.py` | 特征重要性分析与可视化 |
+| `src/plot_results.py` | 实验结果可视化 |
+
+baseline 代码经过拆分后，每类模型拥有独立入口文件，同时共享 `model_utils.py` 中的统一预处理逻辑。这样既保证了四类 baseline 的可独立运行，也避免了重复实现数据处理流程。核心模型代码与 baseline 代码在目录层面分离，便于报告中清晰区分“基线方法”和“进阶方法”。
+
+从可复现性角度看，仓库中保留了统一训练入口、固定随机种子、实验记录表和输出配置文件。最终报告中的指标采用统一测试结果，避免将个人本地单独运行结果混入正式结论。
 
 ---
 
