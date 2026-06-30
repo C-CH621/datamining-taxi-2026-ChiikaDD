@@ -1,54 +1,105 @@
 # datamining-taxi-2026-ChiikaDD
-基于 NYC TLC 黄色出租车数据的 Data-Centric 数据挖掘项目，聚焦费用预测与数据质量审查。
 
-## 项目内容
-- 任务：出租车行程费用预测与异常样本识别
-- 方法：数据初步审查、清洗、特征工程与建模对比
-- 数据：`yellow_tripdata_2026-01.parquet`
+NYC TLC 高容量网约车（FHVHV）费用预测与 Data-Centric 数据治理项目。项目最终口径使用 `fhvhv_tripdata_2026-03`，预测目标为 `base_passenger_fare`，围绕全量数据审计、治理诊断、baseline 对比、LightGBM/Random Forest 融合、消融实验和 SHAP 可解释性展开。
 
-## 当前进展
-- 已完成 2026-01 数据的首轮量化审查（缺失值、异常值、类别分布、重复率、时间一致性）
-- 已形成项目方案文档：`ChiikaDD.md`
-- 已补齐中期报告所需的代码仓库结构，包括数据审计、预处理、基线模型、进阶模型与评测入口
+## 项目结构
 
-## 目录
-- `proposal/ChiikaDD.md`：项目 proposal 与方法设计
-- `data/raw/`：原始 TLC 数据文件目录（大文件不纳入 Git）
-- `data/processed/`：清洗与特征工程后的中间数据
-- `src/audit.py`：数据质量审计入口
-- `governance_v2.py`：数据治理
-- `src/baseline.py`：Ridge 线性基线模型
-- `src/core_model.py`：LightGBM 进阶模型
-- `src/evaluate.py`：回归指标计算工具
-- `results/`：实验指标与预测结果输出目录
-- `reports/figures/`：报告图表输出目录
-- `tests/`：最小单元测试
+```text
+.
+├── data/
+│   ├── raw/                         # 原始大文件目录，不纳入 Git
+│   └── processed/                   # 处理后数据说明与小型元数据
+├── document/
+│   ├── proposal/                    # 开题报告
+│   ├── midterm/                     # 中期报告
+│   ├── presentation/                # 展示材料
+│   └── final_report/                # 最终报告、成员稿与 PDF
+├── reports/                         # 数据治理报告
+├── results/                         # 实验结果、预测文件、图表
+├── src/
+│   ├── data_audit.py                # 原始数据流式审计
+│   ├── governance_v2.py             # 缺失/噪声/漂移/子群体治理诊断
+│   ├── preprocess.py                # 审计、治理与切分入口
+│   ├── baseline/                    # Simple Linear / RF / LGB / XGB baseline
+│   ├── core_model.py                # 核心 LightGBM 模型
+│   ├── generate_final.py            # 最终 LGB+RF 融合实验入口
+│   ├── plot_feature_importance.py   # LightGBM importance 与 SHAP 图
+│   ├── plot_results.py              # 实验图表生成
+│   └── evaluate.py                  # 通用回归指标评估工具
+└── tests/
+```
 
-## 快速开始
-1. 安装依赖：
-   ```bash
-   pip install pandas pyarrow scikit-learn pytest
-   ```
-2. 放置原始数据：
-   ```text
-   data/raw/yellow_tripdata_2026-01.parquet
-   ```
-3. 运行数据审计：
-   ```bash
-   python -m src.data_audit --input data/raw/fhvhv_tripdata_2026-03.csv --output results/raw_audit_2026_03.json
-   ```
-4. 生成清洗特征：
-   ```bash
-   python src/governance_v2.py
-   ```
-5. 运行基线模型：
-   ```bash
-   python -m src.baseline --input data/raw/yellow_tripdata_2026-01.parquet --output results/baseline_metrics.json
-   ```
-6. 运行进阶模型：
-   ```bash
-   python -m src.core_model --input data/raw/yellow_tripdata_2026-01.parquet --output results/core_model_metrics.json
-   ```
+## 主要结果
+
+主实验使用 100,000 行训练口径和 9,996 条有效测试样本。最终 LGB+RF 60/40 融合模型达到：
+
+| 模型 | RMSE | MAE | R² |
+|:---|---:|---:|---:|
+| Random Forest baseline | 2.0778 | 1.1671 | 0.9935 |
+| Optimized LightGBM | 2.0229 | 1.1378 | 0.9938 |
+| LGB+RF Blend 60/40 | 1.9596 | 1.1155 | 0.9942 |
+
+最终报告见：
+
+- `document/final_report/final-report.md`
+- `document/final_report/final-report.pdf`
+
+## 快速复现
+
+安装依赖：
+
+```bash
+pip install -r requirements.txt
+```
+
+运行最终融合实验：
+
+```bash
+python src/generate_final.py \
+  --nrows 100000 \
+  --input-dir data/processed/fhvhv_tripdata_2026-03_prediction_format \
+  --output-dir results/final_100k
+```
+
+运行 SHAP 与特征重要性图：
+
+```bash
+python src/plot_feature_importance.py \
+  --nrows 100000 \
+  --input-dir data/processed/fhvhv_tripdata_2026-03_prediction_format \
+  --output-dir results/figures
+```
+
+评估单个提交文件：
+
+```bash
+python src/evaluate.py \
+  --truth data/processed/fhvhv_tripdata_2026-03_prediction_format/sample_submission.csv \
+  --prediction results/final_100k/submission_core_model_blended.csv
+```
+
+运行测试：
+
+```bash
+pytest
+```
+
+## 数据说明
+
+原始 TLC 数据文件较大，不提交到 Git。当前仓库保留了处理后预测格式数据、实验结果和报告所需图表。若从原始数据重建，可参考：
+
+```bash
+python src/preprocess.py audit \
+  --input data/raw/fhvhv_tripdata_2026-03.csv \
+  --output results/raw_audit_2026_03.json
+
+python src/governance_v2.py
+
+python src/preprocess.py split \
+  --input data/processed/fhvhv_tripdata_2026-03_governed_v2_full.csv \
+  --output-dir data/processed/fhvhv_tripdata_2026-03_prediction_format
+```
 
 ## AI 工具声明
-本项目使用了 Codex、Gemini 辅助代码与文档工作，所有结果均由团队人工审查。
+
+本项目使用 Codex、Gemini 辅助代码、调试和文档整理。所有报告结论均以仓库中的脚本、实验记录和结果文件为依据，并由团队人工审查。
