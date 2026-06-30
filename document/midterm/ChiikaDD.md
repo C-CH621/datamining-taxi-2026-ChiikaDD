@@ -81,7 +81,7 @@ data/processed/fhvhv_tripdata_2026-03_prediction_format/sample_submission.csv
 | 数据问题 | 量化规模 | 解决方案（精确到文件/函数） | 处理后效果 |
 | :--- | :--- | :--- | :--- |
 | 缺失机制（`originating_base_num`） | 缺失率 `27.5933%`；缺失预测 AUC=`0.9993`；目标分布 KS-p=`2.10e-08`（`MAR_likely`） | 缺失机制诊断见 `src/governance_v2.py::diagnose_missing_mechanism`；治理中对高影响特征采用分组中位数+全局中位数补全，见 `src/governance_v2.py::govern_dataset_for_model` | 避免直接删去高影响缺失样本；B 策略样本损失率 `0%`，A 策略样本损失率 `0.0087%` |
-| 标签噪音（规则冲突 + 弱监督不一致） | 规则冲突率 `3.0263%`；弱监督不一致率 `17.1704%`；疑似噪音率 `18.5087%` | 规则冲突与弱监督一致性诊断见 `src/governance_v2.py::diagnose_label_noise`；抽检样本见 `results/manual_audit_sample_noise.csv` | 通过“标记+修复+缩尾”降低噪音影响；A/B 中 MAE `4.7044 -> 4.6993`，RMSE `8.6570 -> 8.6181` |
+| 标签噪音（规则冲突 + 弱监督不一致） | 规则冲突率 `3.0263%`；弱监督不一致率 `17.1704%`；疑似噪音率 `18.5087%` | 规则冲突与弱监督一致性诊断见 `src/governance_v2.py::diagnose_label_noise`；抽检样本见 `results/manual_audit_sample_noise.csv` | 三组实验中治理策略与原始基准结果相同，尚未观察到额外预测收益 |
 | 时间漂移（周内漂移） | Week1 vs Week4：`trip_miles` PSI=`0.00148`、KS-p=`0.0066`；`base_passenger_fare` PSI=`0.00024`、KS-p=`0.00167` | 漂移诊断见 `src/governance_v2.py::diagnose_time_drift`（PSI + KS + Wasserstein） | 当前为“弱漂移”，不触发重训，仅持续监控；避免过度治理导致分布失真 |
 | 子群体差异（平台/时段/区域） | 平台质量问题率：HV0003=`0.1080%`、HV0005=`0.0599%`；高峰/低峰质量问题率存在差异（`0.0742%` vs `0.1066%`） | 分群诊断见 `src/governance_v2.py::subgroup_diagnostics` | 训练评估阶段纳入分群稳定性与公平性指标（子群体误差标准差、公平性差距） |
 | 开题预测未发生项 | `on_scene_datetime` 缺失率 `0`；`dispatching_base_num` 长尾（freq<3）占比 `0` | 审计统计见 `src/data_audit.py::audit_raw_data` 与 `results/raw_audit_2026_03.json` | 本批次 FHVHV 2026-03 数据结构较规整，缺失与长尾风险低于开题预期 |
@@ -106,7 +106,7 @@ flowchart TD
     G --> H
     H --> I[治理后全量数据\n data/processed/fhvhv_tripdata_2026-03_governed_v2_full.parquet]
     H --> J[建模格式数据\n data/processed/fhvhv_tripdata_2026-03_prediction_format/train.csv + test.csv]
-    H --> K[A/B实验\n src/governance_v2.py::run_experiment]
+    H --> K[三组消融实验\n src/governance_v2.py::run_experiment]
     K --> L[实验表\n results/governance_v2_experiment_table.csv]
     J --> M[Baseline Models\n src/baseline/*.py]
     J --> N[Core Model\n src/core_model.py]
@@ -145,9 +145,10 @@ flowchart TD
 - 输出各子群体质量问题率与目标均值偏差，函数：`src/governance_v2.py::subgroup_diagnostics`。
 - 目的：避免某一群体被过度清洗或误差显著偏高。
 
-### 2.6 对照实验设计与结果（A/B）
+### 2.6 对照实验设计与结果（三组消融实验）
 
 **实验设计**
+- 原始基准：`Raw_baseline`（仅进行模型运行必需的处理）
 - 策略 A：`A_delete`（只删异常/缺失）
 - 策略 B：`B_govern`（标记 + 修复 + 缩尾）
 - 固定变量：同切分、同模型（`HistGradientBoostingRegressor`）、同特征、同随机种子
@@ -156,12 +157,15 @@ flowchart TD
 **实验结果**
 | 策略 | RMSE | MAE | 子群体误差标准差 | 公平性差距 | 样本损失率 |
 | :--- | ---: | ---: | ---: | ---: | ---: |
+| Raw_baseline | **8.6181** | **4.6993** | **0.7139** | **1.4279** | **0.0000%** |
 | A_delete | 8.6570 | 4.7044 | 0.7185 | 1.4369 | 0.0087% |
 | B_govern | **8.6181** | **4.6993** | **0.7139** | **1.4279** | **0.0000%** |
 
-- 显著性检验（配对置换）：p-value=`0.1417`（当前样本条件下统计显著性有限，但方向一致）
-- 误差差值（A-B，MAE 方向）：`+0.00515`（正值表示 B 更优）
-实验结果证明
+- 原始基准与治理策略结果完全一致：p-value=`1.0000`。
+- 直接删除策略误差略高，但与原始基准及治理策略的差异均未达到统计显著：p-value=`0.1417`。
+- 当前结果说明直接删除可能损失有效信息，但尚不能证明现有治理策略优于原始数据基准。
+
+实验结果
 ![实验结果证明](./figure/A_B.png)
 
 ### 2.7 落地产物与可复现命令
@@ -178,7 +182,7 @@ flowchart TD
 # 仅审计
 python -m src.preprocess audit --input data/raw/fhvhv_tripdata_2026-03.csv --output results/raw_audit_2026_03.json
 
-# 审计 + 治理 + 诊断 + A/B实验（全流程）
+# 审计 + 治理 + 诊断 + 三组消融实验（全流程）
 python -m src.preprocess pipeline --input data/raw/fhvhv_tripdata_2026-03.csv --output results/raw_audit_2026_03.json
 ```
 
@@ -365,7 +369,7 @@ sample_submission_r2: 0.9940273054324651
 | --- | --- | --- | --- |
 | 第 13 周 | 完成 baseline 结果复核，补充公平训练设置 | 赵会洋、徐文彬 | 更新后的 baseline 对比表 |
 | 第 14 周 | 进行 LightGBM/XGBoost 调参和特征重要性分析 | 赵会洋、崔琛浩 | 调参结果、特征重要性图 |
-| 第 15 周 | 与核心模型/治理策略做 A/B 对比 | 徐文彬、崔琛浩 | 治理收益实验表、失败案例复盘 |
+| 第 15 周 | 完成原始、删除与治理策略三组对比 | 徐文彬、崔琛浩 | 治理消融实验表、失败案例复盘 |
 | 第 16 周 | 整理最终报告、PPT 和答辩材料 | 全员 | 最终报告、展示材料 |
 
 ## 6. AI 工具辅助使用记录

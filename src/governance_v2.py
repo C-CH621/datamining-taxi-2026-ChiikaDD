@@ -397,13 +397,18 @@ def run_experiment(df_raw: pd.DataFrame, df_gov: pd.DataFrame, seed: int = 42) -
                 & (d["trip_time"] > 0)
             )
             d = d.loc[cond]
-        else:
+        elif strategy == "B_govern":
             cond = d[target].notna() & (d[target] >= 0)
             d = d.loc[cond]
             d["trip_miles"] = d["trip_miles"].fillna(d["trip_miles"].median())
             d["trip_time"] = d["trip_time"].fillna(d["trip_time"].median())
+        else:
+            # Raw baseline: only keep trainable targets. Feature missing values
+            # are handled by the model pipeline using training-set statistics.
+            d = d.loc[d[target].notna() & (d[target] >= 0)]
         return d
 
+    raw_baseline = prep_for_strategy(df_raw, "Raw_baseline")
     A = prep_for_strategy(df_raw, "A_delete")
     B = prep_for_strategy(df_gov, "B_govern")
     base = df_raw.copy()
@@ -425,7 +430,7 @@ def run_experiment(df_raw: pd.DataFrame, df_gov: pd.DataFrame, seed: int = 42) -
 
     results: List[ExperimentResult] = []
     pred_store = {}
-    for name, d in [("A_delete", A), ("B_govern", B)]:
+    for name, d in [("Raw_baseline", raw_baseline), ("A_delete", A), ("B_govern", B)]:
         d_train = d[d["row_id"].isin(train_ids)].copy()
         d_test = base[base["row_id"].isin(test_ids)].copy()
         for col in ["trip_miles", "trip_time", "driver_pay", "tips"]:
@@ -449,21 +454,34 @@ def run_experiment(df_raw: pd.DataFrame, df_gov: pd.DataFrame, seed: int = 42) -
         results.append(ExperimentResult(name, rmse, mae, subgroup_std, fairness_gap, sample_loss))
         pred_store[name] = {"y": y_test.values, "pred": pred}
 
-    # significance test (paired permutation on absolute error)
-    eA = np.abs(pred_store["A_delete"]["y"] - pred_store["A_delete"]["pred"])
-    eB = np.abs(pred_store["B_govern"]["y"] - pred_store["B_govern"]["pred"])
-    diff = eA - eB
-    obs = float(diff.mean())
-    rng = np.random.default_rng(seed)
-    perms = 500
-    cnt = 0
-    for _ in range(perms):
-        sign = rng.choice([-1, 1], size=len(diff))
-        stat = float((diff * sign).mean())
-        if abs(stat) >= abs(obs):
-            cnt += 1
-    pval = (cnt + 1) / (perms + 1)
-    significance = {"paired_permutation_pvalue": pval, "mean_abs_error_delta_A_minus_B": obs}
+    # Pairwise significance tests on absolute-error differences.
+    def paired_permutation(left: str, right: str) -> Dict:
+        e_left = np.abs(pred_store[left]["y"] - pred_store[left]["pred"])
+        e_right = np.abs(pred_store[right]["y"] - pred_store[right]["pred"])
+        diff = e_left - e_right
+        obs = float(diff.mean())
+        rng = np.random.default_rng(seed)
+        perms = 500
+        cnt = 0
+        for _ in range(perms):
+            sign = rng.choice([-1, 1], size=len(diff))
+            stat = float((diff * sign).mean())
+            if abs(stat) >= abs(obs):
+                cnt += 1
+        return {
+            "left": left,
+            "right": right,
+            "paired_permutation_pvalue": (cnt + 1) / (perms + 1),
+            "mean_abs_error_delta_left_minus_right": obs,
+        }
+
+    significance = {
+        "pairwise": [
+            paired_permutation("Raw_baseline", "A_delete"),
+            paired_permutation("Raw_baseline", "B_govern"),
+            paired_permutation("A_delete", "B_govern"),
+        ]
+    }
     return results, significance
 
 
@@ -524,6 +542,7 @@ def write_report(
     lines.append("")
     lines.append("## 2) 对照实验设计与结果")
     lines.append("")
+    lines.append("- 策略Raw：原始数据基准（仅进行模型运行必需的处理）")
     lines.append("- 策略A：只删异常（Delete-only）")
     lines.append("- 策略B：标记+修复+缩尾（Governed）")
     lines.append("- 固定变量：同切分、同模型、同特征、同随机种子")
@@ -533,8 +552,22 @@ def write_report(
     for _, r in exp_df.iterrows():
         lines.append(f"| {r['name']} | {r['rmse']:.4f} | {r['mae']:.4f} | {r['subgroup_std']:.4f} | {r['fairness_gap']:.4f} | {r['sample_loss_rate']:.4%} |")
     lines.append("")
-    lines.append(f"- 显著性检验（配对置换检验）：p-value=`{sig['paired_permutation_pvalue']:.4f}`")
-    lines.append(f"- A-B 平均绝对误差差值（A减B，>0表示B更优）：`{sig['mean_abs_error_delta_A_minus_B']:.6f}`")
+    lines.append("### 2.1 两两显著性检验")
+    lines.append("")
+    lines.append("| 左侧策略 | 右侧策略 | MAE差值（左减右） | p-value |")
+    lines.append("|---|---|---:|---:|")
+    for comparison in sig["pairwise"]:
+        lines.append(
+            f"| {comparison['left']} | {comparison['right']} | "
+            f"{comparison['mean_abs_error_delta_left_minus_right']:.6f} | "
+            f"{comparison['paired_permutation_pvalue']:.4f} |"
+        )
+    lines.append("")
+    lines.append("### 2.2 结果解读")
+    lines.append("")
+    lines.append("- 原始数据基准与治理策略结果相同，当前治理未带来可测的额外预测收益。")
+    lines.append("- 直接删除策略的误差略高，但与其他策略的差异未达到统计显著水平。")
+    lines.append("- 当前结果支持“避免直接删除可能有效”，但尚不能证明现有治理策略优于原始数据基准。")
     lines.append("")
     lines.append("## 3) 结论边界")
     lines.append("")
